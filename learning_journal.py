@@ -350,19 +350,72 @@ class LearnLog(tk.Tk):
         q = self._search_var.get().strip()
         t = self._topic_var.get().strip()
         self._entries = db_search(self.con, q, t)
+
         self._listbox.delete(0, "end")
+        # _index_map[listbox_line] = entry row  OR  None (date header)
+        self._index_map = {}
+
+        today     = date.today()
+        yesterday = today - timedelta(days=1)
+        last_date = None
+        lb_idx    = 0
+
         for row in self._entries:
-            date_part  = row["created"][:10]
+            row_date = date.fromisoformat(row["created"][:10])
+
+            # ── Date header ───────────────────────────────────────────────
+            if row_date != last_date:
+                last_date = row_date
+                if row_date == today:
+                    label = "─── Today ─────────────────────"
+                elif row_date == yesterday:
+                    label = "─── Yesterday ─────────────────"
+                else:
+                    label = f"─── {row_date.strftime('%d %b %Y')} ─────────────"
+                self._listbox.insert("end", label)
+                self._listbox.itemconfig(lb_idx, fg=C["muted"], selectbackground=C["panel"],
+                                         selectforeground=C["muted"])
+                self._index_map[lb_idx] = None   # header → not selectable
+                lb_idx += 1
+
+            # ── Entry row ─────────────────────────────────────────────────
             mood_part  = row["mood"]
-            topic_part = (row["topic"][:20] + "…") if len(row["topic"]) > 20 else row["topic"]
-            label = f" {mood_part} {date_part}  {topic_part}"
-            self._listbox.insert("end", label)
+            time_part  = row["created"][11:16]           # HH:MM
+            topic_part = row["topic"]
+            if len(topic_part) > 18:
+                topic_part = topic_part[:17] + "…"
+            entry_label = f"  {mood_part} {time_part}  {topic_part}"
+            self._listbox.insert("end", entry_label)
+            self._index_map[lb_idx] = row
+            lb_idx += 1
+
+    def _autosave(self):
+        """Silently save the current editor state before switching entries."""
+        body  = self._text.get("1.0", "end-1c").strip()
+        topic = self._topic_entry.get().strip()
+        mood  = self._mood.get()
+        if not body or body == self._placeholder:
+            return
+        if self._selected_id:
+            self.con.execute(
+                "UPDATE entries SET topic=?, body=?, mood=? WHERE id=?",
+                (topic, body, mood, self._selected_id)
+            )
+            self.con.commit()
+        else:
+            db_add(self.con, topic, body, mood)
+        self._refresh_list()
+        self._update_stats()
 
     def _on_select(self, e=None):
         sel = self._listbox.curselection()
         if not sel:
             return
-        row = self._entries[sel[0]]
+        row = self._index_map.get(sel[0])
+        if row is None:           # clicked a date header — deselect
+            self._listbox.selection_clear(0, "end")
+            return
+        self._autosave()
         self._selected_id = row["id"]
         self._set_date_label(row["created"])
         self._topic_entry.delete(0, "end")
@@ -376,6 +429,7 @@ class LearnLog(tk.Tk):
 
     # ── Actions ───────────────────────────────────────────────────────────────
     def _new_entry(self):
+        self._autosave()
         self._selected_id = None
         self._set_date_label()
         self._topic_entry.delete(0, "end")
