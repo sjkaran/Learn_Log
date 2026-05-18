@@ -19,13 +19,13 @@ WIN_W, WIN_H = 900, 620
 
 # ── Palette (dark, ink-on-paper feel) ─────────────────────────────────────────
 C = {
-    "bg":        "#0f0f0f",
+    "bg":        "#161833",
     "panel":     "#161616",
     "border":    "#2a2a2a",
     "accent":    "#c8f060",   # lime-green — the "highlight" pen
     "accent2":   "#60c8f0",   # sky-blue accent
-    "text":      "#e8e8e8",
-    "muted":     "#666666",
+    "text":      "#f3f0f0",
+    "muted":     "#E4E4D9",
     "tag_bg":    "#1e2a10",
     "tag_fg":    "#c8f060",
     "entry_bg":  "#131313",
@@ -35,8 +35,8 @@ C = {
 }
 
 FONT_MONO  = ("Courier New", 11)
-FONT_BODY  = ("Georgia", 11)
-FONT_TITLE = ("Georgia", 20, "bold")
+FONT_BODY  = ("Arial", 11)
+FONT_TITLE = ("Times now roman", 20, "bold")
 FONT_LABEL = ("Courier New", 9)
 FONT_TAG   = ("Courier New", 9, "bold")
 

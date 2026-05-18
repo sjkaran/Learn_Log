@@ -19,24 +19,24 @@ WIN_W, WIN_H = 900, 620
 
 # ── Palette (dark, ink-on-paper feel) ─────────────────────────────────────────
 C = {
-    "bg":        "#0f0f0f",
-    "panel":     "#161616",
+    "bg":        "#AAEC9F",
+    "panel":     "#BBB0FE",
     "border":    "#2a2a2a",
-    "accent":    "#c8f060",   # lime-green — the "highlight" pen
+    "accent":    "#09681a",   # lime-green — the "highlight" pen
     "accent2":   "#60c8f0",   # sky-blue accent
-    "text":      "#e8e8e8",
-    "muted":     "#666666",
+    "text":      "#0c0b0b",
+    "muted":     "#0A0A09",
     "tag_bg":    "#1e2a10",
     "tag_fg":    "#c8f060",
-    "entry_bg":  "#131313",
-    "hover":     "#1f1f1f",
+    "entry_bg":  "#E0DECC",
+    "hover":     "#62E978",
     "danger":    "#f06060",
-    "streak":    "#f0a060",
+    "streak":    "#ef0909",
 }
 
 FONT_MONO  = ("Courier New", 11)
-FONT_BODY  = ("Georgia", 11)
-FONT_TITLE = ("Georgia", 20, "bold")
+FONT_BODY  = ("Arial", 11)
+FONT_TITLE = ("Times now roman", 20, "bold")
 FONT_LABEL = ("Courier New", 9)
 FONT_TAG   = ("Courier New", 9, "bold")
 
@@ -389,6 +389,24 @@ class LearnLog(tk.Tk):
             self._index_map[lb_idx] = row
             lb_idx += 1
 
+    def _autosave(self):
+        """Silently save the current editor state before switching entries."""
+        body  = self._text.get("1.0", "end-1c").strip()
+        topic = self._topic_entry.get().strip()
+        mood  = self._mood.get()
+        if not body or body == self._placeholder:
+            return
+        if self._selected_id:
+            self.con.execute(
+                "UPDATE entries SET topic=?, body=?, mood=? WHERE id=?",
+                (topic, body, mood, self._selected_id)
+            )
+            self.con.commit()
+        else:
+            db_add(self.con, topic, body, mood)
+        self._refresh_list()
+        self._update_stats()
+
     def _on_select(self, e=None):
         sel = self._listbox.curselection()
         if not sel:
@@ -397,6 +415,7 @@ class LearnLog(tk.Tk):
         if row is None:           # clicked a date header — deselect
             self._listbox.selection_clear(0, "end")
             return
+        self._autosave()
         self._selected_id = row["id"]
         self._set_date_label(row["created"])
         self._topic_entry.delete(0, "end")
@@ -410,6 +429,7 @@ class LearnLog(tk.Tk):
 
     # ── Actions ───────────────────────────────────────────────────────────────
     def _new_entry(self):
+        self._autosave()
         self._selected_id = None
         self._set_date_label()
         self._topic_entry.delete(0, "end")
@@ -481,4 +501,3 @@ if __name__ == "__main__":
     app = LearnLog()
     app.protocol("WM_DELETE_WINDOW", app.on_close)
     app.mainloop()
-    
