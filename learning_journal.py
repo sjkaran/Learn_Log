@@ -14,18 +14,19 @@ from pathlib import Path
 
 # ── Config ────────────────────────────────────────────────────────────────────
 APP_NAME   = "LearnLog"
-DB_PATH    = Path.home() / ".learnlog" / "journal.db"
+DB_PATH      = Path.home() / ".learnlog" / "journal.db"
+DRAFT_PATH   = Path.home() / ".learnlog" / "draft.tmp"
 WIN_W, WIN_H = 900, 620
 
 # ── Palette (dark, ink-on-paper feel) ─────────────────────────────────────────
 C = {
-    "bg":        "#161833",
+    "bg":        "#0f0f0f",
     "panel":     "#161616",
     "border":    "#2a2a2a",
     "accent":    "#c8f060",   # lime-green — the "highlight" pen
     "accent2":   "#60c8f0",   # sky-blue accent
-    "text":      "#f3f0f0",
-    "muted":     "#E4E4D9",
+    "text":      "#e8e8e8",
+    "muted":     "#666666",
     "tag_bg":    "#1e2a10",
     "tag_fg":    "#c8f060",
     "entry_bg":  "#131313",
@@ -35,8 +36,8 @@ C = {
 }
 
 FONT_MONO  = ("Courier New", 11)
-FONT_BODY  = ("Arial", 11)
-FONT_TITLE = ("Times now roman", 20, "bold")
+FONT_BODY  = ("Georgia", 11)
+FONT_TITLE = ("Georgia", 20, "bold")
 FONT_LABEL = ("Courier New", 9)
 FONT_TAG   = ("Courier New", 9, "bold")
 
@@ -51,16 +52,21 @@ def init_db():
             created   TEXT NOT NULL,
             topic     TEXT NOT NULL DEFAULT '',
             body      TEXT NOT NULL,
-            mood      TEXT NOT NULL DEFAULT '🟢'
+            mood      TEXT NOT NULL DEFAULT '🟢',
+            code_mode INTEGER NOT NULL DEFAULT 0
         )
     """)
+    # migrate existing DBs that lack code_mode column
+    cols = [r[1] for r in con.execute("PRAGMA table_info(entries)").fetchall()]
+    if "code_mode" not in cols:
+        con.execute("ALTER TABLE entries ADD COLUMN code_mode INTEGER NOT NULL DEFAULT 0")
     con.commit()
     return con
 
-def db_add(con, topic, body, mood):
+def db_add(con, topic, body, mood, code_mode=0):
     ts = datetime.now().strftime("%Y-%m-%d %H:%M")
-    con.execute("INSERT INTO entries (created, topic, body, mood) VALUES (?,?,?,?)",
-                (ts, topic.strip(), body.strip(), mood))
+    con.execute("INSERT INTO entries (created, topic, body, mood, code_mode) VALUES (?,?,?,?,?)",
+                (ts, topic.strip(), body.strip(), mood, int(code_mode)))
     con.commit()
 
 def db_search(con, query="", topic_filter=""):
@@ -121,7 +127,34 @@ def db_export(con, path):
             f.write("-" * 40 + "\n")
             f.write(r["body"] + "\n\n")
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+def draft_save(topic, body, mood, code_mode):
+    """Write current editor state to a temp file for crash recovery."""
+    try:
+        import json
+        DRAFT_PATH.write_text(json.dumps({
+            "topic": topic, "body": body, "mood": mood, "code_mode": code_mode
+        }), encoding="utf-8")
+    except Exception:
+        pass
+
+def draft_load():
+    """Return saved draft dict or None."""
+    try:
+        import json
+        if DRAFT_PATH.exists():
+            return json.loads(DRAFT_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        pass
+    return None
+
+def draft_clear():
+    try:
+        if DRAFT_PATH.exists():
+            DRAFT_PATH.unlink()
+    except Exception:
+        pass
+
+
 def styled_btn(parent, text, cmd, color=None, small=False):
     fg = color or C["accent"]
     f  = FONT_LABEL if small else FONT_MONO
@@ -153,10 +186,12 @@ class LearnLog(tk.Tk):
 
         self._selected_id = None
         self._mood        = tk.StringVar(value="🟢")
+        self._code_mode   = False
 
         self._build_layout()
         self._refresh_list()
         self._update_stats()
+        self._check_draft_recovery()
 
     # ── Layout ────────────────────────────────────────────────────────────────
     def _build_layout(self):
@@ -303,6 +338,15 @@ class LearnLog(tk.Tk):
 
         self._lbl_chars = tk.Label(bot, text="", fg=C["muted"], bg=C["panel"], font=FONT_LABEL)
         self._lbl_chars.pack(side="left", padx=14, pady=8)
+
+        # Code mode toggle
+        self._btn_code = tk.Label(bot, text="[ </> ]", fg=C["muted"], bg=C["panel"],
+                                  font=FONT_LABEL, cursor="hand2", padx=8, pady=3)
+        self._btn_code.pack(side="left", padx=2)
+        self._btn_code.bind("<Button-1>", lambda e: self._toggle_code_mode())
+        self._btn_code.bind("<Enter>", lambda e: self._btn_code.config(bg=C["hover"]))
+        self._btn_code.bind("<Leave>", lambda e: self._btn_code.config(bg=C["panel"]))
+
         self._text.bind("<KeyRelease>", self._on_keyrelease)
 
         styled_btn(bot, "[ delete ]", self._delete_entry, color=C["danger"], small=True).pack(side="right", padx=6, pady=8)
@@ -326,6 +370,14 @@ class LearnLog(tk.Tk):
         if body != self._placeholder:
             wc = len(body.split())
             self._lbl_chars.config(text=f"{wc} words")
+            # crash recovery — persist draft on every keystroke
+            if not self._selected_id:
+                draft_save(
+                    self._topic_entry.get(),
+                    body,
+                    self._mood.get(),
+                    self._code_mode
+                )
 
     # ── Date label ────────────────────────────────────────────────────────────
     def _set_date_label(self, ts=None):
@@ -389,6 +441,42 @@ class LearnLog(tk.Tk):
             self._index_map[lb_idx] = row
             lb_idx += 1
 
+    # ── Code mode ─────────────────────────────────────────────────────────────
+    def _toggle_code_mode(self):
+        self._code_mode = not self._code_mode
+        self._apply_code_mode()
+
+    def _apply_code_mode(self):
+        if self._code_mode:
+            self._text.config(font=("Courier New", 11), tabs=("4c",))
+            self._btn_code.config(fg=C["accent2"])
+        else:
+            self._text.config(font=FONT_BODY, tabs=(""))
+            self._btn_code.config(fg=C["muted"])
+
+    # ── Crash recovery ────────────────────────────────────────────────────────
+    def _check_draft_recovery(self):
+        draft = draft_load()
+        if not draft or not draft.get("body", "").strip():
+            return
+        restore = messagebox.askyesno(
+            APP_NAME,
+            "⚡ Unsaved draft found from last session.\n\nRestore it?"
+        )
+        if restore:
+            self._selected_id = None
+            self._topic_entry.delete(0, "end")
+            self._topic_entry.insert(0, draft.get("topic", ""))
+            self._mood.set(draft.get("mood", "🟢"))
+            self._code_mode = bool(draft.get("code_mode", False))
+            self._apply_code_mode()
+            self._text.config(fg=C["text"])
+            self._text.delete("1.0", "end")
+            self._text.insert("1.0", draft["body"])
+            wc = len(draft["body"].split())
+            self._lbl_chars.config(text=f"{wc} words")
+        draft_clear()
+
     def _autosave(self):
         """Silently save the current editor state before switching entries."""
         body  = self._text.get("1.0", "end-1c").strip()
@@ -398,12 +486,13 @@ class LearnLog(tk.Tk):
             return
         if self._selected_id:
             self.con.execute(
-                "UPDATE entries SET topic=?, body=?, mood=? WHERE id=?",
-                (topic, body, mood, self._selected_id)
+                "UPDATE entries SET topic=?, body=?, mood=?, code_mode=? WHERE id=?",
+                (topic, body, mood, int(self._code_mode), self._selected_id)
             )
             self.con.commit()
         else:
-            db_add(self.con, topic, body, mood)
+            db_add(self.con, topic, body, mood, self._code_mode)
+            draft_clear()
         self._refresh_list()
         self._update_stats()
 
@@ -421,6 +510,8 @@ class LearnLog(tk.Tk):
         self._topic_entry.delete(0, "end")
         self._topic_entry.insert(0, row["topic"])
         self._mood.set(row["mood"])
+        self._code_mode = bool(row["code_mode"])
+        self._apply_code_mode()
         self._text.config(fg=C["text"])
         self._text.delete("1.0", "end")
         self._text.insert("1.0", row["body"])
@@ -434,6 +525,8 @@ class LearnLog(tk.Tk):
         self._set_date_label()
         self._topic_entry.delete(0, "end")
         self._mood.set("🟢")
+        self._code_mode = False
+        self._apply_code_mode()
         self._text.config(fg=C["muted"])
         self._text.delete("1.0", "end")
         self._text.insert("1.0", self._placeholder)
@@ -453,13 +546,14 @@ class LearnLog(tk.Tk):
 
         if self._selected_id:
             self.con.execute(
-                "UPDATE entries SET topic=?, body=?, mood=? WHERE id=?",
-                (topic, body, mood, self._selected_id)
+                "UPDATE entries SET topic=?, body=?, mood=?, code_mode=? WHERE id=?",
+                (topic, body, mood, int(self._code_mode), self._selected_id)
             )
             self.con.commit()
         else:
-            db_add(self.con, topic, body, mood)
+            db_add(self.con, topic, body, mood, self._code_mode)
             self._selected_id = None
+            draft_clear()
 
         self._refresh_list()
         self._update_stats()
