@@ -21,8 +21,8 @@ WIN_W, WIN_H = 900, 620
 # ── Palette (dark, ink-on-paper feel) ─────────────────────────────────────────
 C = {
     "bg":        "#0f0f0f",
-    "panel":     "#161616",
-    "border":    "#2a2a2a",
+    "panel":     "#374246",
+    "border":    "#5D526F",
     "accent":    "#c8f060",   # lime-green — the "highlight" pen
     "accent2":   "#60c8f0",   # sky-blue accent
     "text":      "#e8e8e8",
@@ -340,7 +340,7 @@ class LearnLog(tk.Tk):
         self._lbl_chars.pack(side="left", padx=14, pady=8)
 
         # Code mode toggle
-        self._btn_code = tk.Label(bot, text="[ </> ]", fg=C["muted"], bg=C["panel"],
+        self._btn_code = tk.Label(bot, text="[ </> ]", fg=C["tag_fg"], bg=C["tag_bg"],
                                   font=FONT_LABEL, cursor="hand2", padx=8, pady=3)
         self._btn_code.pack(side="left", padx=2)
         self._btn_code.bind("<Button-1>", lambda e: self._toggle_code_mode())
@@ -349,7 +349,7 @@ class LearnLog(tk.Tk):
 
         self._text.bind("<KeyRelease>", self._on_keyrelease)
 
-        styled_btn(bot, "[ delete ]", self._delete_entry, color=C["danger"], small=True).pack(side="right", padx=6, pady=8)
+        styled_btn(bot, "[ delete ]", self._delete_entry, color=C["text"], small=True).pack(side="right", padx=6, pady=8)
         styled_btn(bot, "[ save entry ]", self._save_entry, color=C["accent"]).pack(side="right", padx=6, pady=8)
 
         self._set_date_label()
